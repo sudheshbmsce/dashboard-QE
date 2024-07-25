@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Results</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .chart-container {
+            width: 48%;
+            height: 400px;
+            margin: 20px 1%;
+            display: inline-block;
+        }
+        .full-width-chart-container {
+            width: 100%;
+            height: 400px;
+            margin: 20px 0;
+        }
+        .kpi-container {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+        }
+        .kpi {
+            font-size: 18px;
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            position: relative;
+            cursor: pointer;
+        }
+        .kpi-description {
+            visibility: hidden;
+            width: 200px;
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%; /* Position above the KPI */
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .kpi:hover .kpi-description {
+            visibility: visible;
+            opacity: 1;
+        }
+        .kpi-description::after {
+            content: "";
+            position: absolute;
+            top: 100%; /* Arrow at the bottom of the tooltip */
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #555 transparent transparent transparent;
+        }
+        .charts-row {
+            display: flex;
+            justify-content: space-between;
+        }
+        .button-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .button-container button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .button-container button:hover {
+            background-color: #0056b3;
+        }
+        .target-name {
+            font-size: 24px;
+            color: #007bff;
+            font-weight: bold;
+            background-color: #e0f7ff;
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: inline-block;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetId = urlParams.get('target');
+            const targetName = urlParams.get('name');
+            const apiUrl = `https://qe-dashboard.onrender.com/api/results?target=${targetId}&limit=5`;
+
+            console.log("Fetching results from:", apiUrl);
+
+            fetch(apiUrl)
+            .then(response => {
+                console.log("Response received:", response);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log("Data received:", data);
+                const runs = data.data.results.runs;
+
+                if (!runs.length) {
+                    throw new Error('No run data available');
+                }
+
+                // Get the latest and previous run
+                const latestRun = runs[0];
+                const previousRun = runs.length > 1 ? runs[1] : null;
+                const labels = [latestRun.build_name];
+                const passData = [latestRun.pass];
+                const totalData = [latestRun.total];
+                const failData = [latestRun.total - latestRun.pass];
+                const runUrls = [latestRun.run_url];
+
+                // Calculate total pass and total tests
+                const totalPass = latestRun.pass;
+                const totalTests = latestRun.total;
+                const passPercentage = ((totalPass / totalTests) * 100).toFixed(2);
+                const errorRate = ((totalTests - totalPass) / totalTests * 100).toFixed(2);
+                const improvement = calculateImprovement(latestRun, previousRun);
+
+                // Display the total pass/total tests and pass percentage
+                const header = document.getElementById('header');
+                header.innerHTML = `<h1>Results: ${totalPass}/${totalTests} passed (${passPercentage}%)</h1> <div id="targetName" class="target-name">${targetName}</div>`;
+
+                // Display KPIs
+                const kpiContainer = document.getElementById('kpi-container');
+                kpiContainer.innerHTML = `
+                    <div class="kpi">Success Rate: ${passPercentage}%
+                        <div class="kpi-description">Percentage of passed tests out of the total tests.</div>
+                    </div>
+                    <div class="kpi">Error Rate: ${errorRate}%
+                        <div class="kpi-description">Percentage of failed tests out of the total tests.</div>
+                    </div>
+                    <div class="kpi">Improvement: ${improvement}%
+                        <div class="kpi-description">Percentage change in pass rate from the previous test run.</div>
+                    </div>
+                `;
+
+                // Add Check New Failures button
+                const buttonContainer = document.getElementById('button-container');
+                const button = document.createElement('button');
+                button.textContent = 'Check New Failures';
+                button.onclick = () => {
+                    const supplementalUrl = runUrls[0].replace('/view/results/run/', '/view/supplemental/run/');
+                    window.open(supplementalUrl, '_blank');
+                };
+                buttonContainer.appendChild(button);
+
+                // Plot bar chart
+                const barCtx = document.getElementById('resultsBarChart').getContext('2d');
+                new Chart(barCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Pass',
+                                data: passData,
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                borderColor: 'rgba(75, 192, 192, 1)',
+                                borderWidth: 1
+                            },
+                            {
+                                label: 'Fail',
+                                data: failData,
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                borderWidth: 1
+                            },
+                            {
+                                label: 'Total',
+                                data: totalData,
+                                backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                                borderColor: 'rgba(153, 102, 255, 1)',
+                                borderWidth: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        if (context.parsed.y !== null) {
+                                            label += context.parsed.y;
+                                        }
+                                        return label;
+                                    }
+                                }
+                            },
+                            datalabels: {
+                                anchor: 'end',
+                                align: 'start',
+                                formatter: function(value, context) {
+                                    if (context.dataset.label === 'Pass') {
+                                        return `Pass: ${value}`;
+                                    } else if (context.dataset.label === 'Fail') {
+                                        return `Fail: ${value}`;
+                                    } else if (context.dataset.label === 'Total') {
+                                        return `Total: ${value}`;
+                                    }
+                                },
+                                color: '#000',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            }
+                        },
+                        onClick: function(event, elements) {
+                            if (elements.length > 0) {
+                                const index = elements[0].index;
+                                const url = runUrls[index];
+                                window.open(url, '_blank');
+                            }
+                        }
+                    },
+                    plugins: [ChartDataLabels]
+                });
+
+                // Populate Test Run Summary Table
+                populateTestRunSummaryTable(runs);
+
+                // Plot trend line chart using the last 5 days' results
+                plotTrendChart(runs);
+                plotVarianceChart(runs);
+            })
+            .catch(error => {
+                console.error('Error fetching results:', error);
+                const results = document.getElementById('results');
+                results.textContent = 'Error fetching results: ' + error.message;
+            });
+        });
+
+        function calculateImprovement(currentRun, previousRun) {
+            if (!previousRun) {
+                return 'N/A';
+            }
+            const currentPassRate = (currentRun.pass / currentRun.total) * 100;
+            const previousPassRate = (previousRun.pass / previousRun.total) * 100;
+            const improvement = ((currentPassRate - previousPassRate) / previousPassRate * 100).toFixed(2);
+            return improvement;
+        }
+
+        function plotTrendChart(runs) {
+            const labels = runs.map(run => new Date(run.created_time).toLocaleDateString()).reverse();
+            const passData = runs.map(run => run.pass).reverse();
+            const failData = runs.map(run => run.total - run.pass).reverse();
+
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Pass',
+                            data: passData,
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            fill: true
+                        },
+                        {
+                            label: 'Fail',
+                            data: failData,
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function plotVarianceChart(runs) {
+            const labels = runs.map(run => new Date(run.created_time).toLocaleDateString()).reverse();
+            const passRateData = runs.map(run => ((run.pass / run.total) * 100).toFixed(2)).reverse();
+            const varianceData = passRateData.map((rate, index, array) => {
+                if (index === 0) return 0;
+                return (rate - array[index - 1]).toFixed(2);
+            });
+
+            const ctx = document.getElementById('varianceChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Variance',
+                            data: varianceData,
+                            borderColor: 'rgba(255, 159, 64, 1)',
+                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function populateTestRunSummaryTable(runs) {
+            const tableBody = document.getElementById('testRunSummaryTable').querySelector('tbody');
+            tableBody.innerHTML = ''; // Clear existing content
+
+            runs.forEach(run => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${run.build_name}</td>
+                    <td>${run.pass}</td>
+                    <td>${run.total}</td>
+                    <td>${((run.pass / run.total) * 100).toFixed(2)}%</td>
+                    <td><a href="${run.run_url}" target="_blank">View Results</a></td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+    </script>
+</head>
+<body>
+    <div id="header"></div>
+    <div id="kpi-container" class="kpi-container"></div>
+    <div class="full-width-chart-container">
+        <canvas id="resultsBarChart"></canvas>
+    </div>
+    <div class="button-container" id="button-container"></div>
+    <div class="charts-row">
+        <div class="chart-container">
+            <canvas id="trendChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="varianceChart"></canvas>
+        </div>
+    </div>
+    <div class="full-width-chart-container">
+        <table id="testRunSummaryTable">
+            <thead>
+                <tr>
+                    <th>Build Name</th>
+                    <th>Pass</th>
+                    <th>Total</th>
+                    <th>Pass Rate</th>
+                    <th>Run URL</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</body>
+</html>

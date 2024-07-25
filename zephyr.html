@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Zephyr Testcase Analysis</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(to right, #ece9e6, #ffffff);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            margin-bottom: 20px;
+            font-size: 24px;
+            color: #333;
+        }
+        #summary {
+            margin-bottom: 20px;
+            font-size: 18px;
+            color: #555;
+        }
+        #chart-container {
+            width: 80%;
+            height: 400px;
+            margin-top: 20px;
+        }
+        .loading {
+            font-size: 18px;
+            color: #555;
+            margin-top: 20px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchTotalTestcases();
+        });
+
+        function fetchTotalTestcases() {
+            fetch('https://qe-dashboard.onrender.com/api/zephyr/testcases?maxResults=1')
+                .then(response => response.json())
+                .then(data => {
+                    const totalTestcases = data.total || 0;
+                    document.getElementById('summary').textContent = `Total Test Cases: ${totalTestcases}`;
+                    if (totalTestcases > 0) {
+                        document.getElementById('loading').textContent = 'Loading...';
+                        fetchAndProcessData(totalTestcases);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching total test cases:', error);
+                });
+        }
+
+        function fetchAndProcessData(maxResults) {
+            fetch(`https://qe-dashboard.onrender.com/api/zephyr/testcases?maxResults=${maxResults}`)
+                .then(response => response.json())
+                .then(data => {
+                    const testCases = data.values || [];
+                    processTestCases(testCases);
+                    document.getElementById('loading').textContent = ''; // Clear loading message
+                })
+                .catch(error => {
+                    console.error('Error fetching test cases:', error);
+                });
+        }
+
+        function processTestCases(testCases) {
+            const labelsToInclude = [
+                'Waldo_Automated', 'Automated',   'appiumAutomated',
+                 'API_Automated',  'Cypress_Automated', 
+                'regression', 'alpha_regression', 'Detox_Automated', 'Detox_smoke', 'Detox_alpha'
+            ];
+
+            const labelCounts = {};
+            testCases.forEach(testCase => {
+                if (testCase.labels) {
+                    testCase.labels.forEach(label => {
+                        if (labelsToInclude.includes(label)) {
+                            if (!labelCounts[label]) {
+                                labelCounts[label] = 0;
+                            }
+                            labelCounts[label]++;
+                        }
+                    });
+                }
+            });
+
+            plotLabelCounts(labelCounts);
+        }
+
+        function plotLabelCounts(labelCounts) {
+            const ctx = document.getElementById('chart').getContext('2d');
+            const labels = Object.keys(labelCounts);
+            const data = Object.values(labelCounts);
+
+            const backgroundColors = data.map(value => value < 200 ? 'rgba(255, 99, 132, 0.2)' : 'rgba(75, 192, 192, 0.2)');
+            const borderColors = data.map(value => value < 200 ? 'rgba(255, 99, 132, 1)' : 'rgba(75, 192, 192, 1)');
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Count of Test Cases by Label',
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y;
+                                    }
+                                    return label;
+                                }
+                            }
+                        },
+                        datalabels: {
+                            anchor: 'end',
+                            align: 'start',
+                            formatter: function(value) {
+                                return value;
+                            },
+                            color: '#000',
+                            font: {
+                                weight: 'bold'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</head>
+<body>
+    <h1>Zephyr Testcase Analysis</h1>
+    <div id="summary">Loading...</div>
+    <div id="chart-container">
+        <canvas id="chart"></canvas>
+    </div>
+    <div id="loading" class="loading"></div>
+</body>
+</html>

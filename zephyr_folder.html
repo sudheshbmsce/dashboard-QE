@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Total Test Cases by Folder</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(to right, #ece9e6, #ffffff);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            margin-bottom: 20px;
+            font-size: 24px;
+            color: #333;
+        }
+        #folder-chart-container {
+            width: 80%;
+            height: 400px;
+            margin-top: 20px;
+        }
+        .loading {
+            font-size: 18px;
+            color: #555;
+            margin-top: 20px;
+        }
+        table {
+            width: 80%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchFolderData();
+        });
+
+        async function fetchFolderData() {
+            const loadingElement = document.getElementById('loading');
+            loadingElement.textContent = 'Loading folders...';
+
+            try {
+                const response = await fetch('https://qe-dashboard.onrender.com/api/zephyr/folders');
+                const data = await response.json();
+                const folders = data.values || [];
+                const parentId = 14259358; // Adjust to your root folder ID
+                const rootNode = new FolderNode('Root', parentId);
+                await buildFolderTree(parentId, rootNode, folders);
+                loadingElement.textContent = 'Calculating total test cases...';
+                await plotFolderTestCases(rootNode);
+                loadingElement.textContent = '';
+            } catch (error) {
+                console.error('Error fetching folders:', error);
+                loadingElement.textContent = 'Error loading data.';
+            }
+        }
+
+        class FolderNode {
+            constructor(name, folderId) {
+                this.name = name;
+                this.folderId = folderId;
+                this.children = [];
+            }
+        }
+
+        async function getTotalTestcases(folderId) {
+            try {
+                const response = await fetch(`https://qe-dashboard.onrender.com/api/zephyr/testcases?maxResults=1000&folderId=${folderId}`);
+                const data = await response.json();
+                console.log(`Total test cases for folderId ${folderId}:`, data.total);
+                return data.total || 0;
+            } catch (error) {
+                console.error('Error fetching test cases for folder:', error);
+                return 0;
+            }
+        }
+
+        async function getAutomatedTestcases(folderId) {
+            try {
+                const response = await fetch(`https://qe-dashboard.onrender.com/api/zephyr/testcases?maxResults=1000&folderId=${folderId}`);
+                const data = await response.json();
+                const testCases = data.values || [];
+                const automatedCount = testCases.filter(testCase => testCase.labels && testCase.labels.includes('Automated')).length;
+                console.log(`Automated test cases for folderId ${folderId}:`, automatedCount);
+                return automatedCount;
+            } catch (error) {
+                console.error('Error fetching automated test cases for folder:', error);
+                return 0;
+            }
+        }
+
+        async function buildFolderTree(parentId, parentNode, folders) {
+            const children = folders.filter(folder => folder.parentId === parentId);
+            for (const child of children) {
+                const folderNode = new FolderNode(child.name, child.id);
+                parentNode.children.push(folderNode);
+                await buildFolderTree(child.id, folderNode, folders);
+            }
+        }
+
+        async function calculateTotalTestcases(node) {
+            let totalTestcases = await getTotalTestcases(node.folderId);
+            for (const child of node.children) {
+                totalTestcases += await calculateTotalTestcases(child);
+            }
+            return totalTestcases;
+        }
+
+        async function calculateAutomatedTestcases(node) {
+            let automatedTestcases = await getAutomatedTestcases(node.folderId);
+            for (const child of node.children) {
+                automatedTestcases += await calculateAutomatedTestcases(child);
+            }
+            return automatedTestcases;
+        }
+
+        async function plotFolderTestCases(rootNode) {
+            const folderNames = [];
+            const totalTestcases = [];
+            const automatedTestcases = [];
+            const automationPercentages = [];
+            let totalHighPriority = 0;
+            let totalAutomated = 0;
+
+            for (const child of rootNode.children) {
+                folderNames.push(child.name);
+                const total = await calculateTotalTestcases(child);
+                const automated = await calculateAutomatedTestcases(child);
+                totalTestcases.push(total);
+                automatedTestcases.push(automated);
+                const percentage = total > 0 ? ((automated / total) * 100).toFixed(2) : 0;
+                automationPercentages.push(percentage);
+                totalHighPriority += total;
+                totalAutomated += automated;
+            }
+
+            const ctx = document.getElementById('folderChart').getContext('2d');
+            const backgroundColors = totalTestcases.map(value => value < 200 ? 'rgba(255, 99, 132, 0.2)' : 'rgba(75, 192, 192, 0.2)');
+            const borderColors = totalTestcases.map(value => value < 200 ? 'rgba(255, 99, 132, 1)' : 'rgba(75, 192, 192, 1)');
+
+            const chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: folderNames,
+                    datasets: [{
+                        label: 'Total Testcases',
+                        data: totalTestcases,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y;
+                                    }
+                                    return label;
+                                }
+                            }
+                        },
+                        datalabels: {
+                            anchor: 'end',
+                            align: 'start',
+                            formatter: function(value, context) {
+                                const index = context.dataIndex;
+                                const total = totalTestcases[index];
+                                const automated = automatedTestcases[index];
+                                const percentage = total > 0 ? ((automated / total) * 100).toFixed(2) : 0;
+                                return `${value} (${percentage}%)`;
+                            },
+                            color: '#000',
+                            font: {
+                                weight: 'bold'
+                            }
+                        }
+                    },
+                    onClick: function(e) {
+                        const activePoints = chart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, true);
+                        if (activePoints.length > 0) {
+                            const index = activePoints[0].index;
+                            const folderId = rootNode.children[index].folderId;
+                            const folderName = encodeURIComponent(folderNames[index]);
+                            console.log(`Redirecting to folder_template.html?folderId=${folderId}&folderName=${folderName}`);
+                            window.location.href = `folder_template.html?folderId=${folderId}&folderName=${folderName}`;
+                        }
+                    }
+                },
+                plugins: [ChartDataLabels]
+            });
+
+            const automationPercentage = totalHighPriority > 0 ? ((totalAutomated / totalHighPriority) * 100).toFixed(2) : 0;
+            populateTable(folderNames, totalTestcases, automationPercentages, totalHighPriority, automationPercentage);
+        }
+
+        function populateTable(folderNames, totalTestcases, automationPercentages, totalHighPriority, automationPercentage) {
+            const tableBody = document.getElementById('folder-table-body');
+            tableBody.innerHTML = ''; // Clear existing table content
+
+            // Add the new row above the first row
+            const newRow = document.createElement('tr');
+            const himalayaCell = document.createElement('td');
+            const totalHighPriorityCell = document.createElement('td');
+            const totalAutomatedCell = document.createElement('td');
+
+            himalayaCell.textContent = 'himalaya';
+            totalHighPriorityCell.textContent = `Total number of testcases - ${totalHighPriority}`;
+            totalAutomatedCell.textContent = `Total testcases automated - ${automationPercentage}%`;
+
+            newRow.appendChild(himalayaCell);
+            newRow.appendChild(totalHighPriorityCell);
+            newRow.appendChild(totalAutomatedCell);
+            tableBody.appendChild(newRow);
+
+            folderNames.forEach((name, index) => {
+                const row = document.createElement('tr');
+                const nameCell = document.createElement('td');
+                const totalCell = document.createElement('td');
+                const percentageCell = document.createElement('td');
+
+                nameCell.textContent = name;
+                totalCell.textContent = totalTestcases[index];
+                percentageCell.textContent = `${automationPercentages[index]}%`;
+
+                row.appendChild(nameCell);
+                row.appendChild(totalCell);
+                row.appendChild(percentageCell);
+                tableBody.appendChild(row);
+            });
+        }
+    </script>
+</head>
+<body>
+    <h1>Total Test Cases in Himalaya</h1>
+    <div id="folder-chart-container">
+        <canvas id="folderChart"></canvas>
+    </div>
+    <div id="loading" class="loading"></div>
+    <table>
+        <thead>
+            <tr>
+                <th>Folder Name</th>
+                <th>Number of Test Cases</th>
+                <th>Percentage of Automated Test Cases</th>
+            </tr>
+        </thead>
+        <tbody id="folder-table-body"></tbody>
+    </table>
+</body>
+</html>

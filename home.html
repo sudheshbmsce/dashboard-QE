@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Home</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(to right, #ece9e6, #ffffff); /* Gradient background */
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            margin-bottom: 20px;
+            font-size: 24px;
+            color: #333;
+        }
+        #button-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            max-width: 1200px;
+            width: 100%;
+        }
+        .target-button {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 25px;
+            font-size: 18px;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            background-color: #2196F3; /* Blue */
+        }
+        .target-button:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+        }
+        .target-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            width: 100%;
+            margin-top: 10px;
+            text-align: left;
+            font-size: 16px;
+        }
+        .target-details div {
+            padding: 2px 0;
+            text-align: left;
+        }
+        .last-run {
+            grid-column: span 2;
+            text-align: left;
+        }
+        .icon {
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKB4Imkb9Ru6kU6D1qEe5Q/JAX07PaPOHzeXhV2Yk5o5U5zobf0O1tzMqq2I43tG8auBdxUig==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        function convertToIST(timestamp) {
+            const date = new Date(timestamp);
+            const options = { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+            return date.toLocaleString('en-US', options);
+        }
+
+        async function fetchTargets() {
+            const targetsApiUrl = 'https://qe-dashboard.onrender.com/api/targets';
+            console.log("Fetching targets from:", targetsApiUrl);
+            try {
+                const response = await fetch(targetsApiUrl);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok ' + response.statusText);
+                }
+                const data = await response.json();
+                console.log("Targets data received:", data);
+                const targets = data.data.targets.filter(target => Array.isArray(target.group) && target.group.includes("Detox"));
+
+                const container = document.getElementById('button-container');
+                container.innerHTML = ''; // Clear any existing content
+
+                for (const target of targets) {
+                    const resultData = await fetchResults(target.id);
+                    console.log("Result data for target:", target.name, resultData);
+                    displayTarget(target, resultData, container);
+                }
+            } catch (error) {
+                console.error('Error fetching targets:', error);
+            }
+        }
+
+        async function fetchResults(targetId) {
+            const resultsApiUrl = `https://qe-dashboard.onrender.com/api/results?target=${targetId}&limit=1`;
+            console.log("Fetching results from:", resultsApiUrl);
+            try {
+                const response = await fetch(resultsApiUrl);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok ' + response.statusText);
+                }
+                const resultData = await response.json();
+                console.log("Results data received:", resultData);
+                return resultData;
+            } catch (error) {
+                console.error('Error fetching results:', error);
+                return null;
+            }
+        }
+
+        function displayTarget(target, resultData, container) {
+            if (!resultData) {
+                console.error('No result data available for target:', target.name);
+                return;
+            }
+
+            const run = resultData.data.results.runs[0];
+            const totalPass = run.pass;
+            const totalTests = run.total;
+            const passPercentage = ((totalPass / totalTests) * 100).toFixed(2);
+            const fail = totalTests - totalPass;
+            const lastRunTime = convertToIST(run.created_time);
+
+            const button = document.createElement('button');
+            button.className = 'target-button';
+            button.innerHTML = `
+                <div>${target.name}</div>
+                <div class="target-details">
+                    <div><i class="fas fa-check-circle icon"></i> Pass: ${totalPass}</div>
+                    <div><i class="fas fa-times-circle icon"></i> Fail: ${fail}</div>
+                    <div><i class="fas fa-tasks icon"></i> Total: ${totalTests}</div>
+                    <div><i class="fas fa-percentage icon"></i> Pass %: ${passPercentage}%</div>
+                    <div class="last-run"><i class="fas fa-clock icon"></i> Last Run: ${lastRunTime}</div>
+                </div>
+            `;
+            button.onclick = () => {
+                window.location.href = `results.html?target=${target.id}&name=${encodeURIComponent(target.name)}`;
+            };
+            container.appendChild(button);
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchTargets);
+    </script>
+</head>
+<body>
+    <h1>PHX Automation Results</h1>
+    <div id="button-container">Loading...</div>
+</body>
+</html>
